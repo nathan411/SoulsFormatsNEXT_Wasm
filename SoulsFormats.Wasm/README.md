@@ -1,6 +1,6 @@
-# SoulsFormats Browser WASM
+# SoulsFormats WASM
 
-This project (`SoulsFormats.BrowserWasm`) compiles `SoulsFormats` to WebAssembly so it can be used directly from JavaScript in browsers, NextJS, or Node.js.
+This project (`SoulsFormats.Wasm`) compiles `SoulsFormats` to WebAssembly so it can be used directly from JavaScript in browsers, NextJS, or Node.js.
 
 ## How to use in NextJS
 

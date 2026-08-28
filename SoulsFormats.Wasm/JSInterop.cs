@@ -5,6 +5,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
 using SoulsFormats;
 
+[System.Runtime.Versioning.SupportedOSPlatform("browser")]
 public partial class JSInterop
 {
     [JSExport]
