@@ -409,12 +409,20 @@ public partial class JSInterop
         }
     }
 
+    public class TextureRefDTO
+    {
+        public string Type { get; set; }
+        public string Path { get; set; }
+    }
+
     public class FlverMeshDTO
     {
         public string MaterialName { get; set; }
         public float[] Positions { get; set; }
         public float[] Normals { get; set; }
+        public float[] UVs { get; set; }
         public int[] Indices { get; set; }
+        public List<TextureRefDTO> Textures { get; set; }
     }
 
     public class FlverGeometryDTO
@@ -453,8 +461,25 @@ public partial class JSInterop
                         ? flver.Materials[mesh.MaterialIndex].Name
                         : $"Mesh_{mIdx}";
 
+                    List<TextureRefDTO> texRefs = new List<TextureRefDTO>();
+                    if (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
+                    {
+                        var mat = flver.Materials[mesh.MaterialIndex];
+                        if (mat.Textures != null)
+                        {
+                            foreach (var t in mat.Textures)
+                            {
+                                texRefs.Add(new TextureRefDTO {
+                                    Type = t.ParamName ?? "",
+                                    Path = t.Path ?? ""
+                                });
+                            }
+                        }
+                    }
+
                     List<float> positions = new List<float>(mesh.Vertices.Count * 3);
                     List<float> normals = new List<float>(mesh.Vertices.Count * 3);
+                    List<float> uvs = new List<float>(mesh.Vertices.Count * 2);
 
                     foreach (var v in mesh.Vertices)
                     {
@@ -465,6 +490,17 @@ public partial class JSInterop
                         normals.Add(v.Normal.X);
                         normals.Add(v.Normal.Y);
                         normals.Add(v.Normal.Z);
+
+                        if (v.UVs != null && v.UVs.Count > 0)
+                        {
+                            uvs.Add(v.UVs[0].X);
+                            uvs.Add(v.UVs[0].Y);
+                        }
+                        else
+                        {
+                            uvs.Add(0f);
+                            uvs.Add(0f);
+                        }
                     }
 
                     List<int> indices = new List<int>();
@@ -480,7 +516,9 @@ public partial class JSInterop
                         MaterialName = matName,
                         Positions = positions.ToArray(),
                         Normals = normals.ToArray(),
-                        Indices = indices.ToArray()
+                        UVs = uvs.ToArray(),
+                        Indices = indices.ToArray(),
+                        Textures = texRefs
                     });
                 }
             }
@@ -504,8 +542,25 @@ public partial class JSInterop
                         ? flver.Materials[mesh.MaterialIndex].Name
                         : $"Mesh_{mIdx}";
 
+                    List<TextureRefDTO> texRefs = new List<TextureRefDTO>();
+                    if (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
+                    {
+                        var mat = flver.Materials[mesh.MaterialIndex];
+                        if (mat.Textures != null)
+                        {
+                            foreach (var t in mat.Textures)
+                            {
+                                texRefs.Add(new TextureRefDTO {
+                                    Type = t.ParamName ?? "",
+                                    Path = t.Path ?? ""
+                                });
+                            }
+                        }
+                    }
+
                     List<float> positions = new List<float>(mesh.Vertices.Count * 3);
                     List<float> normals = new List<float>(mesh.Vertices.Count * 3);
+                    List<float> uvs = new List<float>(mesh.Vertices.Count * 2);
 
                     foreach (var v in mesh.Vertices)
                     {
@@ -516,6 +571,17 @@ public partial class JSInterop
                         normals.Add(v.Normal.X);
                         normals.Add(v.Normal.Y);
                         normals.Add(v.Normal.Z);
+
+                        if (v.UVs != null && v.UVs.Count > 0)
+                        {
+                            uvs.Add(v.UVs[0].X);
+                            uvs.Add(v.UVs[0].Y);
+                        }
+                        else
+                        {
+                            uvs.Add(0f);
+                            uvs.Add(0f);
+                        }
                     }
 
                     List<int> indices = new List<int>();
@@ -528,7 +594,9 @@ public partial class JSInterop
                         MaterialName = matName,
                         Positions = positions.ToArray(),
                         Normals = normals.ToArray(),
-                        Indices = indices.ToArray()
+                        UVs = uvs.ToArray(),
+                        Indices = indices.ToArray(),
+                        Textures = texRefs
                     });
                 }
             }
@@ -541,6 +609,110 @@ public partial class JSInterop
                 HeaderVersion = versionStr,
                 Meshes = meshList,
                 Nodes = nodeNames
+            };
+
+            return JsonSerializer.Serialize(dto);
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+            return JsonSerializer.Serialize(new { error = msg, stackTrace = ex.StackTrace });
+        }
+    }
+
+    public class TpfTextureDTO
+    {
+        public string Name { get; set; }
+        public string Format { get; set; }
+        public string BytesBase64 { get; set; }
+    }
+
+    public class TpfFileDTO
+    {
+        public string Platform { get; set; }
+        public List<TpfTextureDTO> Textures { get; set; }
+    }
+
+    [JSExport]
+    public static string ReadTpfTextures(byte[] data)
+    {
+        try
+        {
+            List<TPF> tpfs = new List<TPF>();
+            string platformStr = "PC";
+
+            if (TPF.Is(data))
+            {
+                var tpf = TPF.Read(data);
+                platformStr = tpf.Platform.ToString();
+                tpfs.Add(tpf);
+            }
+            else if (BND4.Is(data))
+            {
+                var bnd = BND4.Read(data);
+                foreach (var file in bnd.Files)
+                {
+                    byte[] fileBytes = file.Bytes;
+                    if (DCX.Is(fileBytes))
+                    {
+                        fileBytes = DCX.Decompress(fileBytes);
+                    }
+                    if (TPF.Is(fileBytes))
+                    {
+                        tpfs.Add(TPF.Read(fileBytes));
+                    }
+                }
+            }
+            else if (BND3.Is(data))
+            {
+                var bnd = BND3.Read(data);
+                foreach (var file in bnd.Files)
+                {
+                    byte[] fileBytes = file.Bytes;
+                    if (DCX.Is(fileBytes))
+                    {
+                        fileBytes = DCX.Decompress(fileBytes);
+                    }
+                    if (TPF.Is(fileBytes))
+                    {
+                        tpfs.Add(TPF.Read(fileBytes));
+                    }
+                }
+            }
+            else
+            {
+                return JsonSerializer.Serialize(new { error = "File is not a recognized TPF or BND container." });
+            }
+
+            var list = new List<TpfTextureDTO>();
+            foreach (var tpf in tpfs)
+            {
+                if (tpf.Textures != null)
+                {
+                    foreach (var tex in tpf.Textures)
+                    {
+                        byte[] texBytes = null;
+                        try 
+                        {
+                            texBytes = tex.Headerize();
+                        } 
+                        catch 
+                        {
+                            texBytes = tex.Bytes; // Fallback to raw bytes if headerizer fails
+                        }
+
+                        list.Add(new TpfTextureDTO {
+                            Name = tex.Name ?? "",
+                            Format = tex.Format.ToString(),
+                            BytesBase64 = texBytes != null ? Convert.ToBase64String(texBytes) : ""
+                        });
+                    }
+                }
+            }
+
+            var dto = new TpfFileDTO {
+                Platform = platformStr,
+                Textures = list
             };
 
             return JsonSerializer.Serialize(dto);
