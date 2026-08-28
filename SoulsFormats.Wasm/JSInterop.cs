@@ -408,4 +408,147 @@ public partial class JSInterop
             cell.Value = rawVal;
         }
     }
+
+    public class FlverMeshDTO
+    {
+        public string MaterialName { get; set; }
+        public float[] Positions { get; set; }
+        public float[] Normals { get; set; }
+        public int[] Indices { get; set; }
+    }
+
+    public class FlverGeometryDTO
+    {
+        public string HeaderVersion { get; set; }
+        public List<FlverMeshDTO> Meshes { get; set; }
+        public List<string> Nodes { get; set; }
+    }
+
+    [JSExport]
+    public static string ReadFlverGeometry(byte[] data)
+    {
+        try
+        {
+            List<FlverMeshDTO> meshList = new List<FlverMeshDTO>();
+            List<string> nodeNames = new List<string>();
+            string versionStr = "";
+
+            if (FLVER2.Is(data))
+            {
+                var flver = FLVER2.Read(data);
+                versionStr = flver.Header.Version.ToString("X");
+
+                if (flver.Nodes != null)
+                {
+                    foreach (var node in flver.Nodes)
+                    {
+                        nodeNames.Add(node.Name ?? "");
+                    }
+                }
+
+                for (int mIdx = 0; mIdx < flver.Meshes.Count; mIdx++)
+                {
+                    var mesh = flver.Meshes[mIdx];
+                    var matName = (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
+                        ? flver.Materials[mesh.MaterialIndex].Name
+                        : $"Mesh_{mIdx}";
+
+                    List<float> positions = new List<float>(mesh.Vertices.Count * 3);
+                    List<float> normals = new List<float>(mesh.Vertices.Count * 3);
+
+                    foreach (var v in mesh.Vertices)
+                    {
+                        positions.Add(v.Position.X);
+                        positions.Add(v.Position.Y);
+                        positions.Add(v.Position.Z);
+
+                        normals.Add(v.Normal.X);
+                        normals.Add(v.Normal.Y);
+                        normals.Add(v.Normal.Z);
+                    }
+
+                    List<int> indices = new List<int>();
+                    if (mesh.FaceSets != null && mesh.FaceSets.Count > 0)
+                    {
+                        var fs = mesh.FaceSets.FirstOrDefault(f => (f.Flags & FLVER2.FaceSet.FSFlags.LodLevel1) == 0 && (f.Flags & FLVER2.FaceSet.FSFlags.LodLevel2) == 0 && (f.Flags & FLVER2.FaceSet.FSFlags.MotionBlur) == 0)
+                              ?? mesh.FaceSets[0];
+
+                        indices = fs.Triangulate(mesh.Vertices.Count < 0xFFFF);
+                    }
+
+                    meshList.Add(new FlverMeshDTO {
+                        MaterialName = matName,
+                        Positions = positions.ToArray(),
+                        Normals = normals.ToArray(),
+                        Indices = indices.ToArray()
+                    });
+                }
+            }
+            else if (FLVER0.Is(data))
+            {
+                var flver = FLVER0.Read(data);
+                versionStr = "FLVER0";
+
+                if (flver.Nodes != null)
+                {
+                    foreach (var node in flver.Nodes)
+                    {
+                        nodeNames.Add(node.Name ?? "");
+                    }
+                }
+
+                for (int mIdx = 0; mIdx < flver.Meshes.Count; mIdx++)
+                {
+                    var mesh = flver.Meshes[mIdx];
+                    var matName = (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
+                        ? flver.Materials[mesh.MaterialIndex].Name
+                        : $"Mesh_{mIdx}";
+
+                    List<float> positions = new List<float>(mesh.Vertices.Count * 3);
+                    List<float> normals = new List<float>(mesh.Vertices.Count * 3);
+
+                    foreach (var v in mesh.Vertices)
+                    {
+                        positions.Add(v.Position.X);
+                        positions.Add(v.Position.Y);
+                        positions.Add(v.Position.Z);
+
+                        normals.Add(v.Normal.X);
+                        normals.Add(v.Normal.Y);
+                        normals.Add(v.Normal.Z);
+                    }
+
+                    List<int> indices = new List<int>();
+                    if (mesh.Indices != null)
+                    {
+                        indices = new List<int>(mesh.Indices);
+                    }
+
+                    meshList.Add(new FlverMeshDTO {
+                        MaterialName = matName,
+                        Positions = positions.ToArray(),
+                        Normals = normals.ToArray(),
+                        Indices = indices.ToArray()
+                    });
+                }
+            }
+            else
+            {
+                return JsonSerializer.Serialize(new { error = "File is not a recognized FLVER0 or FLVER2 binary." });
+            }
+
+            var dto = new FlverGeometryDTO {
+                HeaderVersion = versionStr,
+                Meshes = meshList,
+                Nodes = nodeNames
+            };
+
+            return JsonSerializer.Serialize(dto);
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+            return JsonSerializer.Serialize(new { error = msg, stackTrace = ex.StackTrace });
+        }
+    }
 }
