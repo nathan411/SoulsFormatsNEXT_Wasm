@@ -158,4 +158,254 @@ public partial class JSInterop
             JsonSerializer.Serialize(writer, value, value.GetType(), options);
         }
     }
+
+    public class ParamDefFieldDTO
+    {
+        public string DisplayName { get; set; }
+        public string InternalName { get; set; }
+        public string DisplayType { get; set; }
+        public string InternalType { get; set; }
+        public string Description { get; set; }
+        public string DisplayFormat { get; set; }
+        public object Default { get; set; }
+        public object Minimum { get; set; }
+        public object Maximum { get; set; }
+        public object Increment { get; set; }
+        public int SortID { get; set; }
+        public int ArrayLength { get; set; }
+        public int BitSize { get; set; }
+    }
+
+    public class ParamRowDTO
+    {
+        public int ID { get; set; }
+        public string Name { get; set; }
+        public Dictionary<string, object> Cells { get; set; }
+    }
+
+    public class ParamFileDTO
+    {
+        public string ParamType { get; set; }
+        public short ParamdefDataVersion { get; set; }
+        public bool BigEndian { get; set; }
+        public byte Format2D { get; set; }
+        public byte Format2E { get; set; }
+        public byte ParamdefFormatVersion { get; set; }
+        public short Unk06 { get; set; }
+        public bool UnnamedRows { get; set; }
+        public bool HeaderlessRows { get; set; }
+        public List<ParamDefFieldDTO> Fields { get; set; }
+        public List<ParamRowDTO> Rows { get; set; }
+    }
+
+    [JSExport]
+    public static string GetParamInfo(byte[] data)
+    {
+        try
+        {
+            var param = PARAM.Read(data);
+            return JsonSerializer.Serialize(new {
+                paramType = param.ParamType,
+                paramdefDataVersion = param.ParamdefDataVersion,
+                bigEndian = param.BigEndian,
+                detectedSize = param.DetectedSize,
+                rowCount = param.Rows != null ? param.Rows.Count : 0,
+                unnamedRows = param.UnnamedRows,
+                headerlessRows = param.HeaderlessRows
+            });
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+            return JsonSerializer.Serialize(new { error = msg });
+        }
+    }
+
+    [JSExport]
+    public static string ReadParamWithDef(byte[] data, string paramdefXml)
+    {
+        try
+        {
+            using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(paramdefXml));
+            var paramdef = PARAMDEF.XmlDeserialize(ms);
+
+            var param = PARAM.Read(data);
+            param.ApplyParamdef(paramdef);
+
+            var fields = new List<ParamDefFieldDTO>();
+            foreach (var field in paramdef.Fields)
+            {
+                fields.Add(new ParamDefFieldDTO {
+                    DisplayName = field.DisplayName,
+                    InternalName = field.InternalName,
+                    DisplayType = field.DisplayType.ToString(),
+                    InternalType = field.InternalType,
+                    Description = field.Description,
+                    DisplayFormat = field.DisplayFormat,
+                    Default = field.Default,
+                    Minimum = field.Minimum,
+                    Maximum = field.Maximum,
+                    Increment = field.Increment,
+                    SortID = field.SortID,
+                    ArrayLength = field.ArrayLength,
+                    BitSize = field.BitSize
+                });
+            }
+
+            var rows = new List<ParamRowDTO>();
+            foreach (var row in param.Rows)
+            {
+                var cellDict = new Dictionary<string, object>();
+                if (row.Cells != null)
+                {
+                    foreach (var cell in row.Cells)
+                    {
+                        if (cell.Def != null && !string.IsNullOrEmpty(cell.Def.InternalName))
+                        {
+                            cellDict[cell.Def.InternalName] = cell.Value;
+                        }
+                    }
+                }
+                rows.Add(new ParamRowDTO {
+                    ID = row.ID,
+                    Name = row.Name,
+                    Cells = cellDict
+                });
+            }
+
+            var dto = new ParamFileDTO {
+                ParamType = param.ParamType,
+                ParamdefDataVersion = param.ParamdefDataVersion,
+                BigEndian = param.BigEndian,
+                Format2D = (byte)param.Format2D,
+                Format2E = (byte)param.Format2E,
+                ParamdefFormatVersion = param.ParamdefFormatVersion,
+                Unk06 = param.Unk06,
+                UnnamedRows = param.UnnamedRows,
+                HeaderlessRows = param.HeaderlessRows,
+                Fields = fields,
+                Rows = rows
+            };
+
+            return JsonSerializer.Serialize(dto);
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+            return JsonSerializer.Serialize(new { error = msg, stackTrace = ex.StackTrace });
+        }
+    }
+
+    [JSExport]
+    public static byte[] WriteParamWithDef(string paramJson, string paramdefXml)
+    {
+        try
+        {
+            using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(paramdefXml));
+            var paramdef = PARAMDEF.XmlDeserialize(ms);
+
+            var options = new JsonSerializerOptions { IncludeFields = true, PropertyNameCaseInsensitive = true };
+            var dto = JsonSerializer.Deserialize<ParamFileDTO>(paramJson, options);
+            if (dto == null)
+                throw new Exception("Failed to deserialize ParamFileDTO JSON.");
+
+            var param = new PARAM
+            {
+                ParamType = dto.ParamType ?? paramdef.ParamType,
+                ParamdefDataVersion = dto.ParamdefDataVersion,
+                BigEndian = dto.BigEndian,
+                Format2D = (PARAM.FormatFlags1)dto.Format2D,
+                Format2E = (PARAM.FormatFlags2)dto.Format2E,
+                ParamdefFormatVersion = dto.ParamdefFormatVersion,
+                Unk06 = dto.Unk06,
+                UnnamedRows = dto.UnnamedRows,
+                HeaderlessRows = dto.HeaderlessRows,
+                Rows = new List<PARAM.Row>()
+            };
+
+            typeof(PARAM).GetProperty("AppliedParamdef", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.SetValue(param, paramdef);
+
+            foreach (var r in dto.Rows)
+            {
+                var row = new PARAM.Row(r.ID, r.Name, paramdef);
+                if (r.Cells != null)
+                {
+                    foreach (var cell in row.Cells)
+                    {
+                        if (cell.Def != null && r.Cells.TryGetValue(cell.Def.InternalName, out var rawVal))
+                        {
+                            SetCellValue(cell, rawVal);
+                        }
+                    }
+                }
+                param.Rows.Add(row);
+            }
+
+            return param.Write();
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+            throw new Exception($"Error writing PARAM: {msg}", ex);
+        }
+    }
+
+    private static void SetCellValue(PARAM.Cell cell, object rawVal)
+    {
+        if (rawVal == null) return;
+
+        if (rawVal is JsonElement elem)
+        {
+            switch (cell.Def.DisplayType)
+            {
+                case PARAMDEF.DefType.s8:
+                    cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetSByte() : sbyte.Parse(elem.GetString() ?? "0");
+                    break;
+                case PARAMDEF.DefType.u8:
+                    if (cell.Def.ArrayLength > 1 && elem.ValueKind == JsonValueKind.String)
+                        cell.Value = Convert.FromBase64String(elem.GetString() ?? "");
+                    else
+                        cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetByte() : byte.Parse(elem.GetString() ?? "0");
+                    break;
+                case PARAMDEF.DefType.s16:
+                    cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetInt16() : short.Parse(elem.GetString() ?? "0");
+                    break;
+                case PARAMDEF.DefType.u16:
+                    cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetUInt16() : ushort.Parse(elem.GetString() ?? "0");
+                    break;
+                case PARAMDEF.DefType.s32:
+                case PARAMDEF.DefType.b32:
+                    cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetInt32() : int.Parse(elem.GetString() ?? "0");
+                    break;
+                case PARAMDEF.DefType.u32:
+                    cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetUInt32() : uint.Parse(elem.GetString() ?? "0");
+                    break;
+                case PARAMDEF.DefType.f32:
+                case PARAMDEF.DefType.angle32:
+                    cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetSingle() : float.Parse(elem.GetString() ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                    break;
+                case PARAMDEF.DefType.f64:
+                    cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetDouble() : double.Parse(elem.GetString() ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+                    break;
+                case PARAMDEF.DefType.fixstr:
+                case PARAMDEF.DefType.fixstrW:
+                    cell.Value = elem.GetString() ?? "";
+                    break;
+                case PARAMDEF.DefType.dummy8:
+                    if (cell.Def.BitSize == -1 && cell.Def.ArrayLength > 1 && elem.ValueKind == JsonValueKind.String)
+                        cell.Value = Convert.FromBase64String(elem.GetString() ?? "");
+                    else
+                        cell.Value = elem.ValueKind == JsonValueKind.Number ? elem.GetByte() : (byte.TryParse(elem.GetString() ?? "0", out var b) ? b : (byte)0);
+                    break;
+                default:
+                    cell.Value = elem.ToString();
+                    break;
+            }
+        }
+        else
+        {
+            cell.Value = rawVal;
+        }
+    }
 }
