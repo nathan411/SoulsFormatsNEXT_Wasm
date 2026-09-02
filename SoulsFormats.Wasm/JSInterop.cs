@@ -554,9 +554,29 @@ public partial class JSInterop
         public string Path { get; set; }
     }
 
+    public class FlverTextureDTO
+    {
+        public string ParamName { get; set; }
+        public string Path { get; set; }
+        public float[] TilingScale { get; set; }
+        public int TilingTypeU { get; set; }
+        public int TilingTypeV { get; set; }
+    }
+
+    public class FlverMaterialDTO
+    {
+        public int Index { get; set; }
+        public string Name { get; set; }
+        public string MTD { get; set; }
+        public int GXIndex { get; set; }
+        public List<FlverTextureDTO> Textures { get; set; }
+    }
+
     public class FlverMeshDTO
     {
+        public int MaterialIndex { get; set; }
         public string MaterialName { get; set; }
+        public string MTD { get; set; }
         public float[] Positions { get; set; }
         public float[] Normals { get; set; }
         public float[] UVs { get; set; }
@@ -598,6 +618,7 @@ public partial class JSInterop
     {
         public string HeaderVersion { get; set; }
         public List<FlverMeshDTO> Meshes { get; set; }
+        public List<FlverMaterialDTO> Materials { get; set; }
         public List<string> Nodes { get; set; }
         public List<FlverNodeDTO> BoneNodes { get; set; }
         public List<FlverDummyDTO> Dummies { get; set; }
@@ -609,6 +630,7 @@ public partial class JSInterop
         try
         {
             List<FlverMeshDTO> meshList = new List<FlverMeshDTO>();
+            List<FlverMaterialDTO> materialList = new List<FlverMaterialDTO>();
             List<string> nodeNames = new List<string>();
             List<FlverNodeDTO> boneNodes = new List<FlverNodeDTO>();
             List<FlverDummyDTO> dummyList = new List<FlverDummyDTO>();
@@ -618,6 +640,35 @@ public partial class JSInterop
             {
                 var flver = FLVER2.Read(data);
                 versionStr = flver.Header.Version.ToString("X");
+
+                if (flver.Materials != null)
+                {
+                    for (int i = 0; i < flver.Materials.Count; i++)
+                    {
+                        var mat = flver.Materials[i];
+                        var texs = new List<FlverTextureDTO>();
+                        if (mat.Textures != null)
+                        {
+                            foreach (var t in mat.Textures)
+                            {
+                                texs.Add(new FlverTextureDTO {
+                                    ParamName = t.ParamName ?? "",
+                                    Path = t.Path ?? "",
+                                    TilingScale = new float[] { t.TilingScale.X, t.TilingScale.Y },
+                                    TilingTypeU = (int)t.TilingTypeU,
+                                    TilingTypeV = (int)t.TilingTypeV
+                                });
+                            }
+                        }
+                        materialList.Add(new FlverMaterialDTO {
+                            Index = i,
+                            Name = mat.Name ?? "",
+                            MTD = mat.MTD ?? "",
+                            GXIndex = mat.GXIndex,
+                            Textures = texs
+                        });
+                    }
+                }
 
                 if (flver.Nodes != null)
                 {
@@ -668,6 +719,9 @@ public partial class JSInterop
                     var matName = (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
                         ? flver.Materials[mesh.MaterialIndex].Name
                         : $"Mesh_{mIdx}";
+                    var mtdName = (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
+                        ? flver.Materials[mesh.MaterialIndex].MTD
+                        : "";
 
                     List<TextureRefDTO> texRefs = new List<TextureRefDTO>();
                     if (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
@@ -721,7 +775,9 @@ public partial class JSInterop
                     }
 
                     meshList.Add(new FlverMeshDTO {
+                        MaterialIndex = mesh.MaterialIndex,
                         MaterialName = matName,
+                        MTD = mtdName,
                         Positions = positions.ToArray(),
                         Normals = normals.ToArray(),
                         UVs = uvs.ToArray(),
@@ -734,6 +790,35 @@ public partial class JSInterop
             {
                 var flver = FLVER0.Read(data);
                 versionStr = "FLVER0";
+
+                if (flver.Materials != null)
+                {
+                    for (int i = 0; i < flver.Materials.Count; i++)
+                    {
+                        var mat = flver.Materials[i];
+                        var texs = new List<FlverTextureDTO>();
+                        if (mat.Textures != null)
+                        {
+                            foreach (var t in mat.Textures)
+                            {
+                                texs.Add(new FlverTextureDTO {
+                                    ParamName = t.ParamName ?? "g_Diffuse",
+                                    Path = t.Path ?? "",
+                                    TilingScale = new float[] { 1f, 1f },
+                                    TilingTypeU = 0,
+                                    TilingTypeV = 0
+                                });
+                            }
+                        }
+                        materialList.Add(new FlverMaterialDTO {
+                            Index = i,
+                            Name = mat.Name ?? "",
+                            MTD = mat.MTD ?? "",
+                            GXIndex = -1,
+                            Textures = texs
+                        });
+                    }
+                }
 
                 if (flver.Nodes != null)
                 {
@@ -784,6 +869,9 @@ public partial class JSInterop
                     var matName = (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
                         ? flver.Materials[mesh.MaterialIndex].Name
                         : $"Mesh_{mIdx}";
+                    var mtdName = (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
+                        ? flver.Materials[mesh.MaterialIndex].MTD
+                        : "";
 
                     List<TextureRefDTO> texRefs = new List<TextureRefDTO>();
                     if (mesh.MaterialIndex >= 0 && mesh.MaterialIndex < flver.Materials.Count)
@@ -794,7 +882,7 @@ public partial class JSInterop
                             foreach (var t in mat.Textures)
                             {
                                 texRefs.Add(new TextureRefDTO {
-                                    Type = t.ParamName ?? "",
+                                    Type = t.ParamName ?? "g_Diffuse",
                                     Path = t.Path ?? ""
                                 });
                             }
@@ -834,7 +922,9 @@ public partial class JSInterop
                     }
 
                     meshList.Add(new FlverMeshDTO {
+                        MaterialIndex = mesh.MaterialIndex,
                         MaterialName = matName,
+                        MTD = mtdName,
                         Positions = positions.ToArray(),
                         Normals = normals.ToArray(),
                         UVs = uvs.ToArray(),
@@ -851,6 +941,7 @@ public partial class JSInterop
             var dto = new FlverGeometryDTO {
                 HeaderVersion = versionStr,
                 Meshes = meshList,
+                Materials = materialList,
                 Nodes = nodeNames,
                 BoneNodes = boneNodes,
                 Dummies = dummyList
@@ -969,10 +1060,20 @@ public partial class JSInterop
         }
     }
 
+    public class MaterialModificationDTO
+    {
+        public int Index { get; set; }
+        public string Name { get; set; }
+        public string MTD { get; set; }
+        public int? GXIndex { get; set; }
+        public List<FlverTextureDTO> Textures { get; set; }
+    }
+
     public class MeshModificationDTO
     {
         public int Index { get; set; }
         public float[] Transform { get; set; }
+        public int? MaterialIndex { get; set; }
     }
 
     public class DummyModificationDTO
@@ -994,6 +1095,7 @@ public partial class JSInterop
     public class FlverModificationsDTO
     {
         public List<MeshModificationDTO> Meshes { get; set; }
+        public List<MaterialModificationDTO> Materials { get; set; }
         public List<DummyModificationDTO> Dummies { get; set; }
         public List<BoneNodeModificationDTO> BoneNodes { get; set; }
     }
@@ -1020,27 +1122,64 @@ public partial class JSInterop
 
                 if (mods != null)
                 {
-                    if (mods.Meshes != null)
+                    if (mods.Materials != null && flver.Materials != null)
+                    {
+                        foreach (var matMod in mods.Materials)
+                        {
+                            if (matMod.Index >= 0 && matMod.Index < flver.Materials.Count)
+                            {
+                                var mat = flver.Materials[matMod.Index];
+                                if (matMod.Name != null) mat.Name = matMod.Name;
+                                if (matMod.MTD != null) mat.MTD = matMod.MTD;
+                                if (matMod.GXIndex.HasValue) mat.GXIndex = matMod.GXIndex.Value;
+
+                                if (matMod.Textures != null)
+                                {
+                                    mat.Textures.Clear();
+                                    foreach (var tMod in matMod.Textures)
+                                    {
+                                        mat.Textures.Add(new FLVER2.Texture {
+                                            ParamName = tMod.ParamName ?? "",
+                                            Path = tMod.Path ?? "",
+                                            TilingScale = tMod.TilingScale != null && tMod.TilingScale.Length == 2 ? new Vector2(tMod.TilingScale[0], tMod.TilingScale[1]) : Vector2.One,
+                                            TilingTypeU = (FLVER2.Texture.TilingType)tMod.TilingTypeU,
+                                            TilingTypeV = (FLVER2.Texture.TilingType)tMod.TilingTypeV
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (mods.Meshes != null && flver.Meshes != null)
                     {
                         foreach (var mMod in mods.Meshes)
                         {
-                            if (mMod.Index >= 0 && mMod.Index < flver.Meshes.Count && mMod.Transform != null && mMod.Transform.Length == 16)
+                            if (mMod.Index >= 0 && mMod.Index < flver.Meshes.Count)
                             {
-                                var e = mMod.Transform;
-                                Matrix4x4 mat = new Matrix4x4(
-                                    e[0], e[1], e[2], e[3],
-                                    e[4], e[5], e[6], e[7],
-                                    e[8], e[9], e[10], e[11],
-                                    e[12], e[13], e[14], e[15]
-                                );
-
                                 var mesh = flver.Meshes[mMod.Index];
-                                foreach (var v in mesh.Vertices)
+                                if (mMod.MaterialIndex.HasValue && mMod.MaterialIndex.Value >= 0 && mMod.MaterialIndex.Value < flver.Materials.Count)
                                 {
-                                    v.Position = Vector3.Transform(v.Position, mat);
-                                    if (v.Normal.LengthSquared() > 0.0001f)
+                                    mesh.MaterialIndex = mMod.MaterialIndex.Value;
+                                }
+
+                                if (mMod.Transform != null && mMod.Transform.Length == 16)
+                                {
+                                    var e = mMod.Transform;
+                                    Matrix4x4 mat = new Matrix4x4(
+                                        e[0], e[1], e[2], e[3],
+                                        e[4], e[5], e[6], e[7],
+                                        e[8], e[9], e[10], e[11],
+                                        e[12], e[13], e[14], e[15]
+                                    );
+
+                                    foreach (var v in mesh.Vertices)
                                     {
-                                        v.Normal = Vector3.Normalize(Vector3.TransformNormal(v.Normal, mat));
+                                        v.Position = Vector3.Transform(v.Position, mat);
+                                        if (v.Normal.LengthSquared() > 0.0001f)
+                                        {
+                                            v.Normal = Vector3.Normalize(Vector3.TransformNormal(v.Normal, mat));
+                                        }
                                     }
                                 }
                             }
@@ -1113,27 +1252,57 @@ public partial class JSInterop
 
                 if (mods != null)
                 {
-                    if (mods.Meshes != null)
+                    if (mods.Materials != null && flver.Materials != null)
+                    {
+                        foreach (var matMod in mods.Materials)
+                        {
+                            if (matMod.Index >= 0 && matMod.Index < flver.Materials.Count)
+                            {
+                                var mat = flver.Materials[matMod.Index];
+                                if (matMod.Name != null) mat.Name = matMod.Name;
+                                if (matMod.MTD != null) mat.MTD = matMod.MTD;
+
+                                if (matMod.Textures != null)
+                                {
+                                    mat.Textures.Clear();
+                                    foreach (var tMod in matMod.Textures)
+                                    {
+                                        mat.Textures.Add(new FLVER0.Texture(tMod.ParamName ?? "g_Diffuse", tMod.Path ?? ""));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (mods.Meshes != null && flver.Meshes != null)
                     {
                         foreach (var mMod in mods.Meshes)
                         {
-                            if (mMod.Index >= 0 && mMod.Index < flver.Meshes.Count && mMod.Transform != null && mMod.Transform.Length == 16)
+                            if (mMod.Index >= 0 && mMod.Index < flver.Meshes.Count)
                             {
-                                var e = mMod.Transform;
-                                Matrix4x4 mat = new Matrix4x4(
-                                    e[0], e[1], e[2], e[3],
-                                    e[4], e[5], e[6], e[7],
-                                    e[8], e[9], e[10], e[11],
-                                    e[12], e[13], e[14], e[15]
-                                );
-
                                 var mesh = flver.Meshes[mMod.Index];
-                                foreach (var v in mesh.Vertices)
+                                if (mMod.MaterialIndex.HasValue && mMod.MaterialIndex.Value >= 0 && mMod.MaterialIndex.Value < flver.Materials.Count)
                                 {
-                                    v.Position = Vector3.Transform(v.Position, mat);
-                                    if (v.Normal.LengthSquared() > 0.0001f)
+                                    mesh.MaterialIndex = (byte)mMod.MaterialIndex.Value;
+                                }
+
+                                if (mMod.Transform != null && mMod.Transform.Length == 16)
+                                {
+                                    var e = mMod.Transform;
+                                    Matrix4x4 mat = new Matrix4x4(
+                                        e[0], e[1], e[2], e[3],
+                                        e[4], e[5], e[6], e[7],
+                                        e[8], e[9], e[10], e[11],
+                                        e[12], e[13], e[14], e[15]
+                                    );
+
+                                    foreach (var v in mesh.Vertices)
                                     {
-                                        v.Normal = Vector3.Normalize(Vector3.TransformNormal(v.Normal, mat));
+                                        v.Position = Vector3.Transform(v.Position, mat);
+                                        if (v.Normal.LengthSquared() > 0.0001f)
+                                        {
+                                            v.Normal = Vector3.Normalize(Vector3.TransformNormal(v.Normal, mat));
+                                        }
                                     }
                                 }
                             }
