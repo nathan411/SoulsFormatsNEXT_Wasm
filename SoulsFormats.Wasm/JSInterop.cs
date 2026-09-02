@@ -563,11 +563,43 @@ public partial class JSInterop
         public List<TextureRefDTO> Textures { get; set; }
     }
 
+    public class FlverNodeDTO
+    {
+        public int Index { get; set; }
+        public string Name { get; set; }
+        public int ParentIndex { get; set; }
+        public int FirstChildIndex { get; set; }
+        public int NextSiblingIndex { get; set; }
+        public int PreviousSiblingIndex { get; set; }
+        public float[] Translation { get; set; }
+        public float[] Rotation { get; set; }
+        public float[] Scale { get; set; }
+        public float[] BoundingBoxMin { get; set; }
+        public float[] BoundingBoxMax { get; set; }
+        public int Flags { get; set; }
+    }
+
+    public class FlverDummyDTO
+    {
+        public int Index { get; set; }
+        public int ReferenceID { get; set; }
+        public int ParentBoneIndex { get; set; }
+        public int AttachBoneIndex { get; set; }
+        public float[] Position { get; set; }
+        public float[] Forward { get; set; }
+        public float[] Upward { get; set; }
+        public int[] Color { get; set; }
+        public bool Flag1 { get; set; }
+        public bool UseUpwardVector { get; set; }
+    }
+
     public class FlverGeometryDTO
     {
         public string HeaderVersion { get; set; }
         public List<FlverMeshDTO> Meshes { get; set; }
         public List<string> Nodes { get; set; }
+        public List<FlverNodeDTO> BoneNodes { get; set; }
+        public List<FlverDummyDTO> Dummies { get; set; }
     }
 
     [JSExport]
@@ -577,6 +609,8 @@ public partial class JSInterop
         {
             List<FlverMeshDTO> meshList = new List<FlverMeshDTO>();
             List<string> nodeNames = new List<string>();
+            List<FlverNodeDTO> boneNodes = new List<FlverNodeDTO>();
+            List<FlverDummyDTO> dummyList = new List<FlverDummyDTO>();
             string versionStr = "";
 
             if (FLVER2.Is(data))
@@ -586,9 +620,44 @@ public partial class JSInterop
 
                 if (flver.Nodes != null)
                 {
-                    foreach (var node in flver.Nodes)
+                    for (int i = 0; i < flver.Nodes.Count; i++)
                     {
+                        var node = flver.Nodes[i];
                         nodeNames.Add(node.Name ?? "");
+                        boneNodes.Add(new FlverNodeDTO {
+                            Index = i,
+                            Name = node.Name ?? "",
+                            ParentIndex = node.ParentIndex,
+                            FirstChildIndex = node.FirstChildIndex,
+                            NextSiblingIndex = node.NextSiblingIndex,
+                            PreviousSiblingIndex = node.PreviousSiblingIndex,
+                            Translation = new float[] { node.Translation.X, node.Translation.Y, node.Translation.Z },
+                            Rotation = new float[] { node.Rotation.X, node.Rotation.Y, node.Rotation.Z },
+                            Scale = new float[] { node.Scale.X, node.Scale.Y, node.Scale.Z },
+                            BoundingBoxMin = new float[] { node.BoundingBoxMin.X, node.BoundingBoxMin.Y, node.BoundingBoxMin.Z },
+                            BoundingBoxMax = new float[] { node.BoundingBoxMax.X, node.BoundingBoxMax.Y, node.BoundingBoxMax.Z },
+                            Flags = (int)node.Flags
+                        });
+                    }
+                }
+
+                if (flver.Dummies != null)
+                {
+                    for (int i = 0; i < flver.Dummies.Count; i++)
+                    {
+                        var d = flver.Dummies[i];
+                        dummyList.Add(new FlverDummyDTO {
+                            Index = i,
+                            ReferenceID = d.ReferenceID,
+                            ParentBoneIndex = d.ParentBoneIndex,
+                            AttachBoneIndex = d.AttachBoneIndex,
+                            Position = new float[] { d.Position.X, d.Position.Y, d.Position.Z },
+                            Forward = new float[] { d.Forward.X, d.Forward.Y, d.Forward.Z },
+                            Upward = new float[] { d.Upward.X, d.Upward.Y, d.Upward.Z },
+                            Color = new int[] { d.Color.R, d.Color.G, d.Color.B, d.Color.A },
+                            Flag1 = d.Flag1,
+                            UseUpwardVector = d.UseUpwardVector
+                        });
                     }
                 }
 
@@ -667,9 +736,44 @@ public partial class JSInterop
 
                 if (flver.Nodes != null)
                 {
-                    foreach (var node in flver.Nodes)
+                    for (int i = 0; i < flver.Nodes.Count; i++)
                     {
+                        var node = flver.Nodes[i];
                         nodeNames.Add(node.Name ?? "");
+                        boneNodes.Add(new FlverNodeDTO {
+                            Index = i,
+                            Name = node.Name ?? "",
+                            ParentIndex = node.ParentIndex,
+                            FirstChildIndex = node.FirstChildIndex,
+                            NextSiblingIndex = node.NextSiblingIndex,
+                            PreviousSiblingIndex = node.PreviousSiblingIndex,
+                            Translation = new float[] { node.Translation.X, node.Translation.Y, node.Translation.Z },
+                            Rotation = new float[] { node.Rotation.X, node.Rotation.Y, node.Rotation.Z },
+                            Scale = new float[] { node.Scale.X, node.Scale.Y, node.Scale.Z },
+                            BoundingBoxMin = new float[] { node.BoundingBoxMin.X, node.BoundingBoxMin.Y, node.BoundingBoxMin.Z },
+                            BoundingBoxMax = new float[] { node.BoundingBoxMax.X, node.BoundingBoxMax.Y, node.BoundingBoxMax.Z },
+                            Flags = (int)node.Flags
+                        });
+                    }
+                }
+
+                if (flver.Dummies != null)
+                {
+                    for (int i = 0; i < flver.Dummies.Count; i++)
+                    {
+                        var d = flver.Dummies[i];
+                        dummyList.Add(new FlverDummyDTO {
+                            Index = i,
+                            ReferenceID = d.ReferenceID,
+                            ParentBoneIndex = d.ParentBoneIndex,
+                            AttachBoneIndex = d.AttachBoneIndex,
+                            Position = new float[] { d.Position.X, d.Position.Y, d.Position.Z },
+                            Forward = new float[] { d.Forward.X, d.Forward.Y, d.Forward.Z },
+                            Upward = new float[] { d.Upward.X, d.Upward.Y, d.Upward.Z },
+                            Color = new int[] { d.Color.R, d.Color.G, d.Color.B, d.Color.A },
+                            Flag1 = d.Flag1,
+                            UseUpwardVector = d.UseUpwardVector
+                        });
                     }
                 }
 
@@ -746,7 +850,9 @@ public partial class JSInterop
             var dto = new FlverGeometryDTO {
                 HeaderVersion = versionStr,
                 Meshes = meshList,
-                Nodes = nodeNames
+                Nodes = nodeNames,
+                BoneNodes = boneNodes,
+                Dummies = dummyList
             };
 
             return JsonSerializer.Serialize(dto);
