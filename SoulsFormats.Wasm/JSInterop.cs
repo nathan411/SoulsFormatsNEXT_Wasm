@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
@@ -965,6 +966,248 @@ public partial class JSInterop
         {
             var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
             return JsonSerializer.Serialize(new { error = msg, stackTrace = ex.StackTrace });
+        }
+    }
+
+    public class MeshModificationDTO
+    {
+        public int Index { get; set; }
+        public float[] Transform { get; set; }
+    }
+
+    public class DummyModificationDTO
+    {
+        public int Index { get; set; }
+        public float[] Position { get; set; }
+        public float[] Forward { get; set; }
+        public float[] Upward { get; set; }
+    }
+
+    public class BoneNodeModificationDTO
+    {
+        public int Index { get; set; }
+        public float[] Translation { get; set; }
+        public float[] Rotation { get; set; }
+        public float[] Scale { get; set; }
+    }
+
+    public class FlverModificationsDTO
+    {
+        public List<MeshModificationDTO> Meshes { get; set; }
+        public List<DummyModificationDTO> Dummies { get; set; }
+        public List<BoneNodeModificationDTO> BoneNodes { get; set; }
+    }
+
+    [JSExport]
+    public static byte[] ModifyAndWriteFlver(byte[] originalData, string modificationsJson)
+    {
+        try
+        {
+            byte[] flverBytes = originalData;
+            DCX.CompressionInfo compInfo = null;
+
+            if (DCX.Is(originalData))
+            {
+                flverBytes = DCX.Decompress(originalData, out compInfo);
+            }
+
+            var options = new JsonSerializerOptions { IncludeFields = true };
+            var mods = JsonSerializer.Deserialize<FlverModificationsDTO>(modificationsJson, options);
+
+            if (FLVER2.Is(flverBytes))
+            {
+                var flver = FLVER2.Read(flverBytes);
+
+                if (mods != null)
+                {
+                    if (mods.Meshes != null)
+                    {
+                        foreach (var mMod in mods.Meshes)
+                        {
+                            if (mMod.Index >= 0 && mMod.Index < flver.Meshes.Count && mMod.Transform != null && mMod.Transform.Length == 16)
+                            {
+                                var e = mMod.Transform;
+                                Matrix4x4 mat = new Matrix4x4(
+                                    e[0], e[1], e[2], e[3],
+                                    e[4], e[5], e[6], e[7],
+                                    e[8], e[9], e[10], e[11],
+                                    e[12], e[13], e[14], e[15]
+                                );
+
+                                var mesh = flver.Meshes[mMod.Index];
+                                foreach (var v in mesh.Vertices)
+                                {
+                                    v.Position = Vector3.Transform(v.Position, mat);
+                                    if (v.Normal.LengthSquared() > 0.0001f)
+                                    {
+                                        v.Normal = Vector3.Normalize(Vector3.TransformNormal(v.Normal, mat));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (mods.Dummies != null && flver.Dummies != null)
+                    {
+                        foreach (var dMod in mods.Dummies)
+                        {
+                            if (dMod.Index >= 0 && dMod.Index < flver.Dummies.Count)
+                            {
+                                var d = flver.Dummies[dMod.Index];
+                                if (dMod.Position != null && dMod.Position.Length == 3)
+                                    d.Position = new Vector3(dMod.Position[0], dMod.Position[1], dMod.Position[2]);
+                                if (dMod.Forward != null && dMod.Forward.Length == 3)
+                                    d.Forward = new Vector3(dMod.Forward[0], dMod.Forward[1], dMod.Forward[2]);
+                                if (dMod.Upward != null && dMod.Upward.Length == 3)
+                                    d.Upward = new Vector3(dMod.Upward[0], dMod.Upward[1], dMod.Upward[2]);
+                            }
+                        }
+                    }
+
+                    if (mods.BoneNodes != null && flver.Nodes != null)
+                    {
+                        foreach (var bMod in mods.BoneNodes)
+                        {
+                            if (bMod.Index >= 0 && bMod.Index < flver.Nodes.Count)
+                            {
+                                var node = flver.Nodes[bMod.Index];
+                                if (bMod.Translation != null && bMod.Translation.Length == 3)
+                                    node.Translation = new Vector3(bMod.Translation[0], bMod.Translation[1], bMod.Translation[2]);
+                                if (bMod.Rotation != null && bMod.Rotation.Length == 3)
+                                    node.Rotation = new Vector3(bMod.Rotation[0], bMod.Rotation[1], bMod.Rotation[2]);
+                                if (bMod.Scale != null && bMod.Scale.Length == 3)
+                                    node.Scale = new Vector3(bMod.Scale[0], bMod.Scale[1], bMod.Scale[2]);
+                            }
+                        }
+                    }
+
+                    Vector3 min = new Vector3(float.MaxValue);
+                    Vector3 max = new Vector3(float.MinValue);
+                    bool hasVerts = false;
+                    foreach (var mesh in flver.Meshes)
+                    {
+                        foreach (var v in mesh.Vertices)
+                        {
+                            min = Vector3.Min(min, v.Position);
+                            max = Vector3.Max(max, v.Position);
+                            hasVerts = true;
+                        }
+                    }
+                    if (hasVerts)
+                    {
+                        flver.Header.BoundingBoxMin = min;
+                        flver.Header.BoundingBoxMax = max;
+                    }
+                }
+
+                byte[] result = flver.Write();
+                if (compInfo != null && !(compInfo is DCX.NoCompressionInfo))
+                {
+                    result = DCX.Compress(result, compInfo);
+                }
+                return result;
+            }
+            else if (FLVER0.Is(flverBytes))
+            {
+                var flver = FLVER0.Read(flverBytes);
+
+                if (mods != null)
+                {
+                    if (mods.Meshes != null)
+                    {
+                        foreach (var mMod in mods.Meshes)
+                        {
+                            if (mMod.Index >= 0 && mMod.Index < flver.Meshes.Count && mMod.Transform != null && mMod.Transform.Length == 16)
+                            {
+                                var e = mMod.Transform;
+                                Matrix4x4 mat = new Matrix4x4(
+                                    e[0], e[1], e[2], e[3],
+                                    e[4], e[5], e[6], e[7],
+                                    e[8], e[9], e[10], e[11],
+                                    e[12], e[13], e[14], e[15]
+                                );
+
+                                var mesh = flver.Meshes[mMod.Index];
+                                foreach (var v in mesh.Vertices)
+                                {
+                                    v.Position = Vector3.Transform(v.Position, mat);
+                                    if (v.Normal.LengthSquared() > 0.0001f)
+                                    {
+                                        v.Normal = Vector3.Normalize(Vector3.TransformNormal(v.Normal, mat));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (mods.Dummies != null && flver.Dummies != null)
+                    {
+                        foreach (var dMod in mods.Dummies)
+                        {
+                            if (dMod.Index >= 0 && dMod.Index < flver.Dummies.Count)
+                            {
+                                var d = flver.Dummies[dMod.Index];
+                                if (dMod.Position != null && dMod.Position.Length == 3)
+                                    d.Position = new Vector3(dMod.Position[0], dMod.Position[1], dMod.Position[2]);
+                                if (dMod.Forward != null && dMod.Forward.Length == 3)
+                                    d.Forward = new Vector3(dMod.Forward[0], dMod.Forward[1], dMod.Forward[2]);
+                                if (dMod.Upward != null && dMod.Upward.Length == 3)
+                                    d.Upward = new Vector3(dMod.Upward[0], dMod.Upward[1], dMod.Upward[2]);
+                            }
+                        }
+                    }
+
+                    if (mods.BoneNodes != null && flver.Nodes != null)
+                    {
+                        foreach (var bMod in mods.BoneNodes)
+                        {
+                            if (bMod.Index >= 0 && bMod.Index < flver.Nodes.Count)
+                            {
+                                var node = flver.Nodes[bMod.Index];
+                                if (bMod.Translation != null && bMod.Translation.Length == 3)
+                                    node.Translation = new Vector3(bMod.Translation[0], bMod.Translation[1], bMod.Translation[2]);
+                                if (bMod.Rotation != null && bMod.Rotation.Length == 3)
+                                    node.Rotation = new Vector3(bMod.Rotation[0], bMod.Rotation[1], bMod.Rotation[2]);
+                                if (bMod.Scale != null && bMod.Scale.Length == 3)
+                                    node.Scale = new Vector3(bMod.Scale[0], bMod.Scale[1], bMod.Scale[2]);
+                            }
+                        }
+                    }
+
+                    Vector3 min = new Vector3(float.MaxValue);
+                    Vector3 max = new Vector3(float.MinValue);
+                    bool hasVerts = false;
+                    foreach (var mesh in flver.Meshes)
+                    {
+                        foreach (var v in mesh.Vertices)
+                        {
+                            min = Vector3.Min(min, v.Position);
+                            max = Vector3.Max(max, v.Position);
+                            hasVerts = true;
+                        }
+                    }
+                    if (hasVerts)
+                    {
+                        flver.Header.BoundingBoxMin = min;
+                        flver.Header.BoundingBoxMax = max;
+                    }
+                }
+
+                byte[] result = flver.Write();
+                if (compInfo != null && !(compInfo is DCX.NoCompressionInfo))
+                {
+                    result = DCX.Compress(result, compInfo);
+                }
+                return result;
+            }
+            else
+            {
+                throw new Exception("File is not a valid FLVER0 or FLVER2 binary.");
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Error modifying FLVER: {ex.Message}", ex);
         }
     }
 }
