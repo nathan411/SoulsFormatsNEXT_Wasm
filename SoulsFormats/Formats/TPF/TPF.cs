@@ -211,7 +211,17 @@ namespace SoulsFormats
             /// <summary>
             /// Creates an empty Texture.
             /// </summary>
-            public Texture(TPFPlatform platform = TPFPlatform.PC)
+            public Texture()
+            {
+                Name = "Unnamed";
+                Bytes = new byte[0];
+                Platform = TPFPlatform.PC;
+            }
+
+            /// <summary>
+            /// Creates an empty Texture with a specific platform.
+            /// </summary>
+            public Texture(TPFPlatform platform)
             {
                 Name = "Unnamed";
                 Bytes = new byte[0];
@@ -369,14 +379,24 @@ namespace SoulsFormats
             {
                 if (platform == TPFPlatform.PC)
                 {
-                    DDS dds = new DDS(Bytes);
-                    if (dds.dwCaps2.HasFlag(DDS.DDSCAPS2.CUBEMAP))
-                        Type = TexType.Cubemap;
-                    else if (dds.dwCaps2.HasFlag(DDS.DDSCAPS2.VOLUME))
-                        Type = TexType.Volume;
-                    else
-                        Type = TexType.Texture;
-                    Mipmaps = (byte)dds.dwMipMapCount;
+                    if (Bytes != null && Bytes.Length >= 4 && Bytes[0] == (byte)'D' && Bytes[1] == (byte)'D' && Bytes[2] == (byte)'S' && Bytes[3] == (byte)' ')
+                    {
+                        try
+                        {
+                            DDS dds = new DDS(Bytes);
+                            if (dds.dwCaps2.HasFlag(DDS.DDSCAPS2.CUBEMAP))
+                                Type = TexType.Cubemap;
+                            else if (dds.dwCaps2.HasFlag(DDS.DDSCAPS2.VOLUME))
+                                Type = TexType.Volume;
+                            else
+                                Type = TexType.Texture;
+                            Mipmaps = (byte)dds.dwMipMapCount;
+                        }
+                        catch
+                        {
+                            // Do not restrict arbitrary/unrecognized payloads
+                        }
+                    }
                 }
 
                 bw.ReserveUInt32($"FileData{index}");
@@ -389,6 +409,9 @@ namespace SoulsFormats
 
                 if (platform != TPFPlatform.PC && platform != TPFPlatform.Switch)
                 {
+                    if (Header == null)
+                        Header = new TexHeader();
+
                     bw.WriteInt16(Header.Width);
                     bw.WriteInt16(Header.Height);
 
@@ -414,7 +437,11 @@ namespace SoulsFormats
                 bw.WriteInt32(FloatStruct == null ? 0 : 1);
 
                 if (platform == TPFPlatform.PS4 || platform == TPFPlatform.Xbone)
+                {
+                    if (Header == null)
+                        Header = new TexHeader();
                     bw.WriteInt32(Header.DXGIFormat);
+                }
 
                 if (FloatStruct != null)
                     FloatStruct.Write(bw);

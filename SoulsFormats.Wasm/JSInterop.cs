@@ -13,6 +13,55 @@ public partial class JSInterop
     {
         try
         {
+            if (formatName == "TPF")
+            {
+                var tpf = TPF.Read(data);
+                var list = new List<object>();
+                for (int i = 0; i < tpf.Textures.Count; i++)
+                {
+                    var tex = tpf.Textures[i];
+                    byte[] texBytes = null;
+                    string ext = ".dds";
+                    try
+                    {
+                        texBytes = tex.HeaderizeExt(out ext);
+                    }
+                    catch
+                    {
+                        texBytes = tex.Bytes;
+                    }
+
+                    list.Add(new {
+                        ID = i,
+                        Name = tex.Name ?? "",
+                        Extension = ext ?? ".dds",
+                        Format = tex.Format,
+                        Type = (int)tex.Type,
+                        Mipmaps = tex.Mipmaps,
+                        Flags1 = tex.Flags1,
+                        Platform = (int)tex.Platform,
+                        Bytes = texBytes != null ? Convert.ToBase64String(texBytes) : "",
+                        Header = tex.Header,
+                        FloatStruct = tex.FloatStruct
+                    });
+                }
+
+                var dto = new {
+                    Platform = (int)tpf.Platform,
+                    Encoding = (int)tpf.Encoding,
+                    Flag2 = (int)tpf.Flag2,
+                    Compression = tpf.Compression,
+                    Files = list
+                };
+
+                var opts = new JsonSerializerOptions {
+                    IncludeFields = true,
+                    WriteIndented = false
+                };
+                opts.Converters.Add(new CompressionInfoConverter());
+                return JsonSerializer.Serialize(dto, opts);
+            }
+
             Type type = Type.GetType($"SoulsFormats.{formatName}, SoulsFormats") 
                      ?? Type.GetType($"SoulsFormats.{formatName}");
             if (type == null)
@@ -51,6 +100,95 @@ public partial class JSInterop
     {
         try
         {
+            if (formatName == "TPF")
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                var tpf = new TPF();
+                if (root.TryGetProperty("Platform", out var platProp))
+                    tpf.Platform = (TPF.TPFPlatform)platProp.GetInt32();
+                if (root.TryGetProperty("Encoding", out var encProp))
+                    tpf.Encoding = encProp.GetByte();
+                if (root.TryGetProperty("Flag2", out var flag2Prop))
+                    tpf.Flag2 = flag2Prop.GetByte();
+
+                if (root.TryGetProperty("Compression", out var compProp))
+                {
+                    var opts = new JsonSerializerOptions { IncludeFields = true };
+                    opts.Converters.Add(new CompressionInfoConverter());
+                    tpf.Compression = JsonSerializer.Deserialize<DCX.CompressionInfo>(compProp.GetRawText(), opts) 
+                                   ?? new DCX.NoCompressionInfo();
+                }
+
+                JsonElement filesElement = default;
+                if (root.TryGetProperty("Files", out var fElem))
+                    filesElement = fElem;
+                else if (root.TryGetProperty("Textures", out var tElem))
+                    filesElement = tElem;
+                else if (root.ValueKind == JsonValueKind.Array)
+                    filesElement = root;
+
+                if (filesElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var elem in filesElement.EnumerateArray())
+                    {
+                        string name = "";
+                        if (elem.TryGetProperty("Name", out var nameProp))
+                            name = nameProp.GetString() ?? "";
+
+                        byte format = 0;
+                        if (elem.TryGetProperty("Format", out var fmtProp))
+                            format = fmtProp.GetByte();
+
+                        byte flags1 = 0;
+                        if (elem.TryGetProperty("Flags1", out var flags1Prop))
+                            flags1 = flags1Prop.GetByte();
+
+                        TPF.TPFPlatform platform = tpf.Platform;
+                        if (elem.TryGetProperty("Platform", out var pProp))
+                            platform = (TPF.TPFPlatform)pProp.GetInt32();
+
+                        byte[] bytes = null;
+                        if (elem.TryGetProperty("Bytes", out var bytesProp))
+                        {
+                            bytes = bytesProp.GetBytesFromBase64();
+                        }
+
+                        // Try to convert standard PC DDS bytes to target platform if applicable
+                        if (bytes != null && bytes.Length >= 4 && bytes[0] == (byte)'D' && bytes[1] == (byte)'D' && bytes[2] == (byte)'S' && bytes[3] == (byte)' ')
+                        {
+                            try
+                            {
+                                var convertedTex = new TPF.Texture(name, format, flags1, bytes, platform);
+                                tpf.Textures.Add(convertedTex);
+                                continue;
+                            }
+                            catch
+                            {
+                            }
+                        }
+
+                        // Fallback / raw texture payload
+                        var tex = new TPF.Texture();
+                        tex.Name = name;
+                        tex.Format = format;
+                        tex.Flags1 = flags1;
+                        tex.Platform = platform;
+                        tex.Bytes = bytes ?? new byte[0];
+
+                        if (elem.TryGetProperty("Type", out var typeProp))
+                            tex.Type = (TPF.TexType)typeProp.GetByte();
+                        if (elem.TryGetProperty("Mipmaps", out var mipProp))
+                            tex.Mipmaps = mipProp.GetByte();
+
+                        tpf.Textures.Add(tex);
+                    }
+                }
+
+                return tpf.Write();
+            }
+
             Type type = Type.GetType($"SoulsFormats.{formatName}, SoulsFormats") 
                      ?? Type.GetType($"SoulsFormats.{formatName}");
             if (type == null)
